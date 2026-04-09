@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(fuser -k 3001/tcp)",
+      "Bash(fuser 3001/tcp)",
+      "Bash(npm install openai)",
+      "Bash(./node_modules/.bin/tsc --noEmit)",
+      "Bash(ls /home/sai/safety-video-orchestrator/output/*.mp4)",
+      "Bash(./node_modules/.bin/tsx scripts/assemble-existing.ts)",
+      "Bash(ffprobe -v error -show_entries format=duration -of csv=p=0 /home/sai/safety-video-orchestrator/output/final_video.mp4)",
+      "Read(//home/sai/safety-video-orchestrator/{printf \"\"\"\"%.1fs \\(%.1f min\\)\\\\n\"\"\"\", $1, $1/**)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:github.com)",
+      "Bash(node -e \"const g = require\\(''@google/genai''\\); const ai = new g.GoogleGenAI\\({apiKey:''test''}\\); console.log\\(''generateVideos:'', typeof ai.models.generateVideos\\); console.log\\(''getVideosOperation:'', typeof ai.operations?.getVideosOperation\\);\")",
+      "WebFetch(domain:runwayml.com)",
+      "WebFetch(domain:docs.runwayml.com)",
+      "WebFetch(domain:learn.runwayml.com)",
+      "WebFetch(domain:help.runwayml.com)",
+      "WebSearch",
+      "WebFetch(domain:docs.dev.runwayml.com)"
+    ]
+  }
+}

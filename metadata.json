@@ -1,0 +1,5 @@
+{
+  "name": "Safety Video Orchestrator",
+  "description": "An AI-powered pipeline to transform safety SOP documents into professional training videos.",
+  "requestFramePermissions": []
+}
