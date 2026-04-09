@@ -1,17 +1,31 @@
-import { agents } from "./agents";
+import { createAgents } from "./agents";
 import { generateVideo } from "./video-provider";
 import { generateNarrationAudio } from "./tts";
 import { assembleVideo } from "./assembly";
-import type { PipelineState, PipelineStatus } from "./types";
+import type {
+  PipelineState,
+  PipelineStatus,
+  PipelineConfig,
+  VideoUseCase,
+  ReferenceImage,
+  ClarificationRequest,
+  ClarificationResponse,
+} from "./types";
 
 export type { PipelineState, PipelineStatus };
 
-const MAX_ITERATIONS = 2; // TODO: restore to 3 for production
-const VIDEO_CONCURRENCY = 1;
+const MAX_ITERATIONS = 1; // TODO: restore to 2+ for production
+const DEFAULT_MAX_SCENES = 5;
+const VIDEO_CONCURRENCY = 5;
+const CLARIFICATION_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
-async function generateVideoForShot(prompt: string, jobId: string): Promise<string | null> {
+async function generateVideoForShot(
+  prompt: string,
+  jobId: string,
+  imagePath: string | null = null
+): Promise<string | null> {
   try {
-    return await generateVideo(prompt, jobId);
+    return await generateVideo(prompt, jobId, imagePath);
   } catch (err: any) {
     console.error("Video generation failed for shot:", err?.message ?? err);
     return null;
@@ -20,11 +34,20 @@ async function generateVideoForShot(prompt: string, jobId: string): Promise<stri
 
 export async function runPipeline(
   jobId: string,
-  sopText: string,
-  onUpdate: (state: PipelineState) => void
+  inputText: string,
+  useCase: VideoUseCase,
+  onUpdate: (state: PipelineState) => void,
+  referenceImages: ReferenceImage[] = [],
+  requestClarification?: (req: ClarificationRequest) => Promise<ClarificationResponse>,
+  config: PipelineConfig = { maxScenes: DEFAULT_MAX_SCENES }
 ): Promise<PipelineState> {
+  const agents = createAgents(useCase);
+  const maxScenes = config.maxScenes;
+
   let state: PipelineState = {
     jobId,
+    useCase,
+    config,
     iteration: 0,
     status: "idle",
     script: null,
@@ -36,6 +59,8 @@ export async function runPipeline(
     score_report: null,
     final_score: null,
     improvement_notes: [],
+    reference_images: referenceImages,
+    pending_clarification: null,
     error: null,
   };
 
@@ -48,52 +73,110 @@ export async function runPipeline(
     for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
       state.iteration = iter + 1;
 
-      // Scripting
+      // Scripting — cap scenes so all downstream agents stay in sync
       update("scripting");
-      state.script = await agents.scriptWriter(sopText, state.improvement_notes);
+      const rawScript = await agents.scriptWriter(inputText, state.improvement_notes);
+      if (rawScript.scenes && rawScript.scenes.length > maxScenes) {
+        rawScript.scenes = rawScript.scenes.slice(0, maxScenes);
+      }
+      state.script = rawScript;
       onUpdate(state);
 
-      // Directing
+      // Directing — pass reference images so director can assign them to shots
       update("directing");
-      state.shot_list = await agents.videoDirector(state.script);
+      state.shot_list = await agents.videoDirector(state.script, referenceImages);
       onUpdate(state);
 
-      // Flatten shot list (director returns { shots: [...] })
+      // Flatten shot list
       const shots: any[] = Array.isArray(state.shot_list)
         ? state.shot_list
         : (state.shot_list?.shots ?? []);
 
-      // Audio plan — pass shot list so agent writes one narration per shot (≤10s each)
+      // Handle clarification requests from the director
+      if (referenceImages.length > 0 && requestClarification) {
+        const ambiguousShots = shots.filter((s) => s.reference_image_id === "ask_user");
+        if (ambiguousShots.length > 0) {
+          const shotDescriptions = ambiguousShots
+            .map((s) => `Shot ${s.scene_number}: ${s.shot_description}`)
+            .join("\n");
+          const imageOptions = referenceImages.map((img) => img.label ?? img.filename);
+
+          const clarificationReq: ClarificationRequest = {
+            clarificationId: `${jobId}-clarify-${iter}`,
+            question: `The director is unsure which reference image to use for these shots:\n${shotDescriptions}\n\nPlease specify which image to use for each, or type "skip" to use text-to-video instead.`,
+            options: [...imageOptions, "skip"],
+            imageIds: referenceImages.map((img) => img.id),
+          };
+
+          update("awaiting_clarification", { pending_clarification: clarificationReq });
+
+          // Await user response with timeout
+          const response = await Promise.race([
+            requestClarification(clarificationReq),
+            new Promise<ClarificationResponse>((_, reject) =>
+              setTimeout(() => reject(new Error("Clarification timed out after 5 minutes")), CLARIFICATION_TIMEOUT_MS)
+            ),
+          ]);
+
+          update("directing", { pending_clarification: null });
+
+          // Apply the user's answer: match to an image or skip
+          const answer = response.answer.trim().toLowerCase();
+          if (answer !== "skip") {
+            const matchedImage = referenceImages.find(
+              (img) =>
+                (img.label ?? img.filename).toLowerCase() === answer ||
+                img.id === answer
+            );
+            if (matchedImage) {
+              for (const shot of ambiguousShots) {
+                shot.reference_image_id = matchedImage.id;
+              }
+            }
+          }
+          // Clear ask_user markers for any unresolved shots
+          for (const shot of ambiguousShots) {
+            if (shot.reference_image_id === "ask_user") {
+              delete shot.reference_image_id;
+            }
+          }
+        }
+      }
+
+      // Audio plan
       update("audio");
       state.audio_plan = await agents.audioAgent(state.script, state.shot_list);
       onUpdate(state);
 
-      // TTS — convert per-shot narration to MP3s, ordered by shot index
+      // TTS
       update("tts", { audio_uris: [] });
       const narrations: any[] = state.audio_plan?.narration ?? [];
-      // Sort narrations by shot_number so audio[i] lines up with video clip[i]
       const sortedNarrations = [...narrations].sort(
         (a, b) => (a.shot_number ?? a.scene_number ?? 0) - (b.shot_number ?? b.scene_number ?? 0)
       );
       const audioUris = await generateNarrationAudio(sortedNarrations, jobId);
-      // Filter nulls for state reporting but pass the full sparse array to assembly
       update("tts", { audio_uris: audioUris.filter((u): u is string => u !== null) });
 
-      // VIDEO_STYLE prepended to every prompt — controls animation style globally
-      // e.g. VIDEO_STYLE="3D animated, Pixar style, vibrant colors"
       const videoStyle = process.env.VIDEO_STYLE?.trim();
 
-      // Video generation — parallel batches of VIDEO_CONCURRENCY
+      // Video generation — resolve reference images per shot
       update("generating_videos", { video_uris: [] });
       const uris: string[] = [];
       for (let i = 0; i < shots.length; i += VIDEO_CONCURRENCY) {
         const batch = shots.slice(i, i + VIDEO_CONCURRENCY);
         const results = await Promise.allSettled(
           batch.map((shot) => {
-            // video_prompt is the new model-agnostic field; fall back for older data
             const basePrompt = shot.video_prompt ?? shot.veo_prompt ?? shot.shot_description;
             const prompt = videoStyle ? `${videoStyle}. ${basePrompt}` : basePrompt;
-            return generateVideoForShot(prompt, jobId);
+
+            // Look up reference image for this shot
+            let imagePath: string | null = null;
+            if (shot.reference_image_id && shot.reference_image_id !== "ask_user") {
+              const refImg = referenceImages.find((img) => img.id === shot.reference_image_id);
+              if (refImg) imagePath = refImg.path;
+            }
+
+            return generateVideoForShot(prompt, jobId, imagePath);
           })
         );
         for (const result of results) {
@@ -107,8 +190,7 @@ export async function runPipeline(
       state.video_uris = uris;
       onUpdate(state);
 
-      // Assembly — 1:1 pairing: clip[i] + audio[i], no looping needed
-      // shotSceneMap still passed so scenes are grouped correctly in the final cut
+      // Assembly
       update("assembly");
       const shotSceneMap: number[] = shots.map((s) => s.scene_number ?? 1);
       const finalUri = await assembleVideo(state.video_uris, audioUris, jobId, shotSceneMap);
@@ -117,7 +199,7 @@ export async function runPipeline(
       // Quality validation
       update("validating");
       const scoreReport = await agents.qualityValidator({
-        sop: sopText,
+        sop: inputText,
         script: state.script,
         shot_list: state.shot_list,
         audio_plan: state.audio_plan,

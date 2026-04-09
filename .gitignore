@@ -7,5 +7,6 @@ coverage/
 .env*
 !.env.example
 output/
+uploads/
 music/
 .claude/settings.local.json

@@ -1,12 +1,11 @@
-import { writeFile, mkdir } from "fs/promises";
+import { writeFile, mkdir, readFile } from "fs/promises";
 import path from "path";
 import { randomUUID } from "crypto";
 
 const RUNWAY_API_BASE = "https://api.dev.runwayml.com/v1";
 const RUNWAY_VERSION = "2024-11-06";
-const RUNWAY_MODEL = "veo3.1_fast"; // Gen-3 Alpha Turbo — best text-to-video on tier 1, good animation quality
-const POLL_INTERVAL_MS = 60000; // 60s poll — gen3a_turbo is faster than gen4.5
-// gen3a_turbo supports 5s or 10s clips
+const RUNWAY_MODEL = "gen4.5";
+const POLL_INTERVAL_MS = 60000;
 const CLIP_DURATION_SECONDS = 8;
 
 function getApiKey(): string {
@@ -25,7 +24,6 @@ function runwayHeaders(): Record<string, string> {
 }
 
 async function pollTask(taskId: string): Promise<string> {
-  // Initial random jitter 0-10s so concurrent tasks don't all poll at the same time
   await new Promise((r) => setTimeout(r, Math.random() * 10000));
 
   while (true) {
@@ -50,26 +48,52 @@ async function pollTask(taskId: string): Promise<string> {
       throw new Error(`Runway task failed: ${task.error ?? "unknown error"}`);
     }
 
-    // PENDING / RUNNING / THROTTLED — back off and retry
     const wait = task.status === "THROTTLED" ? POLL_INTERVAL_MS * 3 : POLL_INTERVAL_MS;
     await new Promise((r) => setTimeout(r, wait));
   }
 }
 
-export async function generateVideoRunway(prompt: string, jobId: string): Promise<string | null> {
+export async function generateVideoRunway(
+  prompt: string,
+  jobId: string,
+  imagePath: string | null = null
+): Promise<string | null> {
   const clipsDir = path.resolve(`./output/${jobId}/clips`);
   await mkdir(clipsDir, { recursive: true });
 
-  // Submit text-to-video task
-  const res = await fetch(`${RUNWAY_API_BASE}/text_to_video`, {
-    method: "POST",
-    headers: runwayHeaders(),
-    body: JSON.stringify({
+  let endpoint: string;
+  let body: Record<string, any>;
+
+  if (imagePath) {
+    // Image-to-video: encode as data URI
+    const imageBytes = await readFile(imagePath);
+    const ext = path.extname(imagePath).toLowerCase().slice(1);
+    const mimeType = ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : "image/jpeg";
+    const dataUri = `data:${mimeType};base64,${imageBytes.toString("base64")}`;
+
+    endpoint = `${RUNWAY_API_BASE}/image_to_video`;
+    body = {
       model: RUNWAY_MODEL,
-      promptText: prompt.slice(0, 1000), // API max 1000 chars
+      promptImage: dataUri,
+      promptText: prompt.slice(0, 1000),
       ratio: "1280:720",
       duration: CLIP_DURATION_SECONDS,
-    }),
+    };
+    console.log(`[runway] image-to-video with ${path.basename(imagePath)}`);
+  } else {
+    endpoint = `${RUNWAY_API_BASE}/text_to_video`;
+    body = {
+      model: RUNWAY_MODEL,
+      promptText: prompt.slice(0, 1000),
+      ratio: "1280:720",
+      duration: CLIP_DURATION_SECONDS,
+    };
+  }
+
+  const res = await fetch(endpoint, {
+    method: "POST",
+    headers: runwayHeaders(),
+    body: JSON.stringify(body),
   });
 
   if (!res.ok) {
@@ -79,10 +103,8 @@ export async function generateVideoRunway(prompt: string, jobId: string): Promis
   const task = await res.json();
   console.log(`[runway] task created: ${task.id} | status: ${task.status}`);
 
-  // Poll until done, get signed video URL
   const videoUrl = await pollTask(task.id);
 
-  // Download immediately — URL expires in 24-48h
   const dlRes = await fetch(videoUrl);
   if (!dlRes.ok) throw new Error(`Failed to download Runway video: ${dlRes.status}`);
 

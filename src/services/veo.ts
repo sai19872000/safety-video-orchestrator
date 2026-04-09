@@ -1,9 +1,9 @@
 import { GoogleGenAI } from "@google/genai";
-import { writeFile, mkdir } from "fs/promises";
+import { writeFile, mkdir, readFile } from "fs/promises";
 import path from "path";
 import { randomUUID } from "crypto";
 
-const VEO_MODEL = "veo-3.0-generate-001";
+const VEO_MODEL = "veo-3.1-generate-001";
 const POLL_INTERVAL_MS = 10000;
 
 function getClient(): GoogleGenAI {
@@ -13,26 +13,42 @@ function getClient(): GoogleGenAI {
   return new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY });
 }
 
-export async function generateVideoVeo(prompt: string, jobId: string): Promise<string | null> {
+export async function generateVideoVeo(
+  prompt: string,
+  jobId: string,
+  imagePath: string | null = null
+): Promise<string | null> {
   const ai = getClient();
   const clipsDir = path.resolve(`./output/${jobId}/clips`);
   await mkdir(clipsDir, { recursive: true });
 
-  // Submit generation job via SDK
-  const operation = await ai.models.generateVideos({
+  const generateParams: any = {
     model: VEO_MODEL,
     prompt,
     config: {
       aspectRatio: "16:9",
       durationSeconds: 8,
     },
-  });
+  };
+
+  // Image-to-video: read file as base64 and attach
+  if (imagePath) {
+    const imageBytes = await readFile(imagePath);
+    const ext = path.extname(imagePath).toLowerCase();
+    const mimeType = ext === ".png" ? "image/png" : ext === ".webp" ? "image/webp" : "image/jpeg";
+    generateParams.image = {
+      imageBytes: imageBytes.toString("base64"),
+      mimeType,
+    };
+    console.log(`[veo] image-to-video with ${path.basename(imagePath)}`);
+  }
+
+  const operation = await ai.models.generateVideos(generateParams);
 
   const operationName = (operation as unknown as { name?: string }).name;
   if (!operationName) throw new Error("Veo operation returned no name");
   console.log(`[veo] operation started: ${operationName}`);
 
-  // Poll using SDK operations.getVideosOperation (not fetchPredictLongRunning)
   let current: any = operation;
   while (!current.done) {
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
@@ -51,10 +67,8 @@ export async function generateVideoVeo(prompt: string, jobId: string): Promise<s
   let buffer: Buffer;
 
   if (videoData.videoBytes) {
-    // Inline base64
     buffer = Buffer.from(videoData.videoBytes, "base64");
   } else if (videoData.uri) {
-    // Download from signed URI
     const res = await fetch(`${videoData.uri}&key=${process.env.GOOGLE_API_KEY}`);
     if (!res.ok) throw new Error(`Failed to download Veo video: ${res.status} ${await res.text()}`);
     buffer = Buffer.from(await res.arrayBuffer());
