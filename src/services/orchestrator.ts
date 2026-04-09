@@ -5,6 +5,7 @@ import { assembleVideo } from "./assembly";
 import type {
   PipelineState,
   PipelineStatus,
+  PipelineConfig,
   VideoUseCase,
   ReferenceImage,
   ClarificationRequest,
@@ -14,7 +15,7 @@ import type {
 export type { PipelineState, PipelineStatus };
 
 const MAX_ITERATIONS = 1; // TODO: restore to 2+ for production
-const MAX_SHOTS = 3; // TODO: remove cap for production
+const DEFAULT_MAX_SCENES = 5;
 const VIDEO_CONCURRENCY = 5;
 const CLARIFICATION_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -37,13 +38,16 @@ export async function runPipeline(
   useCase: VideoUseCase,
   onUpdate: (state: PipelineState) => void,
   referenceImages: ReferenceImage[] = [],
-  requestClarification?: (req: ClarificationRequest) => Promise<ClarificationResponse>
+  requestClarification?: (req: ClarificationRequest) => Promise<ClarificationResponse>,
+  config: PipelineConfig = { maxScenes: DEFAULT_MAX_SCENES }
 ): Promise<PipelineState> {
   const agents = createAgents(useCase);
+  const maxScenes = config.maxScenes;
 
   let state: PipelineState = {
     jobId,
     useCase,
+    config,
     iteration: 0,
     status: "idle",
     script: null,
@@ -69,9 +73,13 @@ export async function runPipeline(
     for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
       state.iteration = iter + 1;
 
-      // Scripting
+      // Scripting — cap scenes so all downstream agents stay in sync
       update("scripting");
-      state.script = await agents.scriptWriter(inputText, state.improvement_notes);
+      const rawScript = await agents.scriptWriter(inputText, state.improvement_notes);
+      if (rawScript.scenes && rawScript.scenes.length > maxScenes) {
+        rawScript.scenes = rawScript.scenes.slice(0, maxScenes);
+      }
+      state.script = rawScript;
       onUpdate(state);
 
       // Directing — pass reference images so director can assign them to shots
@@ -79,11 +87,10 @@ export async function runPipeline(
       state.shot_list = await agents.videoDirector(state.script, referenceImages);
       onUpdate(state);
 
-      // Flatten shot list, cap for testing
-      const allShots: any[] = Array.isArray(state.shot_list)
+      // Flatten shot list
+      const shots: any[] = Array.isArray(state.shot_list)
         ? state.shot_list
         : (state.shot_list?.shots ?? []);
-      const shots = allShots.slice(0, MAX_SHOTS);
 
       // Handle clarification requests from the director
       if (referenceImages.length > 0 && requestClarification) {

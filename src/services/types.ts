@@ -35,9 +35,14 @@ export type PipelineStatus =
   | "complete"
   | "failed";
 
+export interface PipelineConfig {
+  maxScenes: number;
+}
+
 export interface PipelineState {
   jobId: string;
   useCase: VideoUseCase;
+  config: PipelineConfig;
   iteration: number;
   status: PipelineStatus;
   script: any;

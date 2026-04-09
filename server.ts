@@ -114,7 +114,7 @@ async function startServer() {
 
   // POST /api/run-pipeline — start pipeline, optionally reuse existing jobId with uploaded images
   app.post("/api/run-pipeline", (req, res) => {
-    const { sop, useCase = "safety", jobId: existingJobId } = req.body;
+    const { sop, useCase = "safety", jobId: existingJobId, maxScenes = 5 } = req.body;
     if (!sop || typeof sop !== "string" || sop.trim().length === 0) {
       return res.status(400).json({ error: "sop text is required" });
     }
@@ -156,7 +156,8 @@ async function startServer() {
         job.clients.forEach((cb) => cb(state));
       },
       referenceImages,
-      requestClarification
+      requestClarification,
+      { maxScenes: Math.max(1, Math.min(20, Number(maxScenes) || 5)) }
     ).catch((err) => {
       console.error(`Pipeline job ${jobId} crashed:`, err);
     });

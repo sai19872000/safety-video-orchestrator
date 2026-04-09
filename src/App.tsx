@@ -46,6 +46,7 @@ export default function App() {
   const [images, setImages] = useState<ReferenceImage[]>([]);
   const [jobId, setJobId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [maxScenes, setMaxScenes] = useState(5);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Clarification state
@@ -124,6 +125,7 @@ export default function App() {
           sop: sopText,
           useCase,
           jobId: jobId ?? undefined,
+          maxScenes,
         }),
       });
       if (!startRes.ok) {
@@ -256,6 +258,21 @@ export default function App() {
               ))}
             </div>
           )}
+        </div>
+
+        {/* Max Scenes Control */}
+        <div className="flex items-center gap-4">
+          <label className="text-sm text-gray-400">Max Scenes</label>
+          <input
+            type="range"
+            min={1}
+            max={20}
+            value={maxScenes}
+            onChange={(e) => setMaxScenes(Number(e.target.value))}
+            disabled={loading}
+            className="flex-1 accent-blue-500"
+          />
+          <span className="text-sm font-mono text-white w-6 text-center">{maxScenes}</span>
         </div>
 
         <button
