@@ -1,3 +1,5 @@
+export type VideoUseCase = "safety" | "educational" | "recreational";
+
 export type PipelineStatus =
   | "idle"
   | "scripting"
@@ -13,6 +15,7 @@ export type PipelineStatus =
 
 export interface PipelineState {
   jobId: string;
+  useCase: VideoUseCase;
   iteration: number;
   status: PipelineStatus;
   script: any;

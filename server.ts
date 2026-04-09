@@ -11,7 +11,9 @@ import { randomUUID } from "crypto";
 import path from "path";
 import { runPipeline } from "./src/services/orchestrator";
 import { generateVideo } from "./src/services/sora";
-import type { PipelineState } from "./src/services/types";
+import type { PipelineState, VideoUseCase } from "./src/services/types";
+
+const VALID_USE_CASES: VideoUseCase[] = ["safety", "educational", "recreational"];
 
 const execPromise = util.promisify(exec);
 
@@ -31,16 +33,19 @@ async function startServer() {
 
   // POST /api/run-pipeline — start a new pipeline job, returns jobId immediately
   app.post("/api/run-pipeline", (req, res) => {
-    const { sop } = req.body;
+    const { sop, useCase = "safety" } = req.body;
     if (!sop || typeof sop !== "string" || sop.trim().length === 0) {
       return res.status(400).json({ error: "sop text is required" });
+    }
+    if (!VALID_USE_CASES.includes(useCase)) {
+      return res.status(400).json({ error: `useCase must be one of: ${VALID_USE_CASES.join(", ")}` });
     }
 
     const jobId = randomUUID();
     jobs.set(jobId, { state: null, clients: new Set() });
 
     // Fire pipeline async — updates broadcast to connected SSE clients
-    runPipeline(jobId, sop.trim(), (state) => {
+    runPipeline(jobId, sop.trim(), useCase, (state) => {
       const job = jobs.get(jobId);
       if (!job) return;
       job.state = state;

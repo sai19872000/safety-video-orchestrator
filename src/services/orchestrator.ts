@@ -1,8 +1,8 @@
-import { agents } from "./agents";
+import { createAgents } from "./agents";
 import { generateVideo } from "./video-provider";
 import { generateNarrationAudio } from "./tts";
 import { assembleVideo } from "./assembly";
-import type { PipelineState, PipelineStatus } from "./types";
+import type { PipelineState, PipelineStatus, VideoUseCase } from "./types";
 
 export type { PipelineState, PipelineStatus };
 
@@ -20,11 +20,15 @@ async function generateVideoForShot(prompt: string, jobId: string): Promise<stri
 
 export async function runPipeline(
   jobId: string,
-  sopText: string,
+  inputText: string,
+  useCase: VideoUseCase,
   onUpdate: (state: PipelineState) => void
 ): Promise<PipelineState> {
+  const agents = createAgents(useCase);
+
   let state: PipelineState = {
     jobId,
+    useCase,
     iteration: 0,
     status: "idle",
     script: null,
@@ -50,7 +54,7 @@ export async function runPipeline(
 
       // Scripting
       update("scripting");
-      state.script = await agents.scriptWriter(sopText, state.improvement_notes);
+      state.script = await agents.scriptWriter(inputText, state.improvement_notes);
       onUpdate(state);
 
       // Directing
@@ -63,7 +67,7 @@ export async function runPipeline(
         ? state.shot_list
         : (state.shot_list?.shots ?? []);
 
-      // Audio plan — pass shot list so agent writes one narration per shot (≤10s each)
+      // Audio plan — pass shot list so agent writes one narration per shot
       update("audio");
       state.audio_plan = await agents.audioAgent(state.script, state.shot_list);
       onUpdate(state);
@@ -71,16 +75,13 @@ export async function runPipeline(
       // TTS — convert per-shot narration to MP3s, ordered by shot index
       update("tts", { audio_uris: [] });
       const narrations: any[] = state.audio_plan?.narration ?? [];
-      // Sort narrations by shot_number so audio[i] lines up with video clip[i]
       const sortedNarrations = [...narrations].sort(
         (a, b) => (a.shot_number ?? a.scene_number ?? 0) - (b.shot_number ?? b.scene_number ?? 0)
       );
       const audioUris = await generateNarrationAudio(sortedNarrations, jobId);
-      // Filter nulls for state reporting but pass the full sparse array to assembly
       update("tts", { audio_uris: audioUris.filter((u): u is string => u !== null) });
 
       // VIDEO_STYLE prepended to every prompt — controls animation style globally
-      // e.g. VIDEO_STYLE="3D animated, Pixar style, vibrant colors"
       const videoStyle = process.env.VIDEO_STYLE?.trim();
 
       // Video generation — parallel batches of VIDEO_CONCURRENCY
@@ -90,7 +91,6 @@ export async function runPipeline(
         const batch = shots.slice(i, i + VIDEO_CONCURRENCY);
         const results = await Promise.allSettled(
           batch.map((shot) => {
-            // video_prompt is the new model-agnostic field; fall back for older data
             const basePrompt = shot.video_prompt ?? shot.veo_prompt ?? shot.shot_description;
             const prompt = videoStyle ? `${videoStyle}. ${basePrompt}` : basePrompt;
             return generateVideoForShot(prompt, jobId);
@@ -107,8 +107,7 @@ export async function runPipeline(
       state.video_uris = uris;
       onUpdate(state);
 
-      // Assembly — 1:1 pairing: clip[i] + audio[i], no looping needed
-      // shotSceneMap still passed so scenes are grouped correctly in the final cut
+      // Assembly — 1:1 pairing: clip[i] + audio[i]
       update("assembly");
       const shotSceneMap: number[] = shots.map((s) => s.scene_number ?? 1);
       const finalUri = await assembleVideo(state.video_uris, audioUris, jobId, shotSceneMap);
@@ -117,7 +116,7 @@ export async function runPipeline(
       // Quality validation
       update("validating");
       const scoreReport = await agents.qualityValidator({
-        sop: sopText,
+        sop: inputText,
         script: state.script,
         shot_list: state.shot_list,
         audio_plan: state.audio_plan,

@@ -1,5 +1,11 @@
 import { useState } from "react";
-import type { PipelineState } from "./services/types";
+import type { PipelineState, VideoUseCase } from "./services/types";
+
+const USE_CASE_OPTIONS: { value: VideoUseCase; label: string; description: string; placeholder: string }[] = [
+  { value: "safety", label: "Safety Training", description: "Paste a Safety SOP — the agent pipeline writes the script, plans shots, generates clips, assembles, and validates automatically.", placeholder: "Paste your Safety SOP text here..." },
+  { value: "educational", label: "Educational", description: "Paste lesson material or a topic — the pipeline creates an instructional video with clear explanations and visual aids.", placeholder: "Paste your lesson content, topic outline, or educational material here..." },
+  { value: "recreational", label: "Recreational / Creative", description: "Describe a concept or story — the pipeline produces an entertaining, visually engaging video.", placeholder: "Describe your video concept, story idea, or creative brief here..." },
+];
 
 const STATUS_LABEL: Record<string, string> = {
   scripting: "Writing script from SOP...",
@@ -28,10 +34,13 @@ const PROGRESS: Record<string, number> = {
 };
 
 export default function App() {
+  const [useCase, setUseCase] = useState<VideoUseCase>("safety");
   const [sopText, setSopText] = useState("");
   const [loading, setLoading] = useState(false);
   const [state, setState] = useState<PipelineState | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const activeCaseOption = USE_CASE_OPTIONS.find((o) => o.value === useCase)!;
 
   const handleGenerate = async () => {
     if (!sopText.trim()) return;
@@ -44,7 +53,7 @@ export default function App() {
       const startRes = await fetch("/api/run-pipeline", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sop: sopText }),
+        body: JSON.stringify({ sop: sopText, useCase }),
       });
       if (!startRes.ok) {
         const data = await startRes.json();
@@ -89,17 +98,32 @@ export default function App() {
       <div className="max-w-4xl mx-auto space-y-6">
         {/* Header */}
         <div>
-          <h1 className="text-4xl font-bold tracking-tight">Safety Video Orchestrator</h1>
-          <p className="text-gray-400 mt-1">
-            Paste a Safety SOP — the agent pipeline writes the script, plans shots,
-            generates clips, assembles, and validates automatically.
-          </p>
+          <h1 className="text-4xl font-bold tracking-tight">Video Orchestrator</h1>
+          <p className="text-gray-400 mt-1">{activeCaseOption.description}</p>
         </div>
 
-        {/* SOP Input */}
+        {/* Use Case Selector */}
+        <div className="flex gap-2">
+          {USE_CASE_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                useCase === opt.value
+                  ? "bg-blue-600 text-white"
+                  : "bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-gray-200"
+              }`}
+              onClick={() => setUseCase(opt.value)}
+              disabled={loading}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Input */}
         <textarea
           className="w-full h-48 p-4 bg-gray-900 border border-gray-700 rounded-xl text-white placeholder-gray-500 resize-none focus:outline-none focus:border-blue-500 transition-colors"
-          placeholder="Paste your Safety SOP text here..."
+          placeholder={activeCaseOption.placeholder}
           value={sopText}
           onChange={(e) => setSopText(e.target.value)}
           disabled={loading}
@@ -110,7 +134,7 @@ export default function App() {
           onClick={handleGenerate}
           disabled={loading || !sopText.trim()}
         >
-          {loading ? "Generating..." : "Generate Safety Video"}
+          {loading ? "Generating..." : "Generate Video"}
         </button>
 
         {/* Progress bar */}
