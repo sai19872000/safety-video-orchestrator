@@ -4,7 +4,7 @@ import { randomUUID } from "crypto";
 
 const RUNWAY_API_BASE = "https://api.dev.runwayml.com/v1";
 const RUNWAY_VERSION = "2024-11-06";
-const RUNWAY_MODEL = "veo3.1_fast";
+const RUNWAY_MODEL = "gen4.5";
 const POLL_INTERVAL_MS = 60000;
 const CLIP_DURATION_SECONDS = 8;
 

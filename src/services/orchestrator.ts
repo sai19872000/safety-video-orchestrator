@@ -13,8 +13,9 @@ import type {
 
 export type { PipelineState, PipelineStatus };
 
-const MAX_ITERATIONS = 2;
-const VIDEO_CONCURRENCY = 1;
+const MAX_ITERATIONS = 1; // TODO: restore to 2+ for production
+const MAX_SHOTS = 3; // TODO: remove cap for production
+const VIDEO_CONCURRENCY = 5;
 const CLARIFICATION_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
 async function generateVideoForShot(
@@ -78,10 +79,11 @@ export async function runPipeline(
       state.shot_list = await agents.videoDirector(state.script, referenceImages);
       onUpdate(state);
 
-      // Flatten shot list
-      const shots: any[] = Array.isArray(state.shot_list)
+      // Flatten shot list, cap for testing
+      const allShots: any[] = Array.isArray(state.shot_list)
         ? state.shot_list
         : (state.shot_list?.shots ?? []);
+      const shots = allShots.slice(0, MAX_SHOTS);
 
       // Handle clarification requests from the director
       if (referenceImages.length > 0 && requestClarification) {

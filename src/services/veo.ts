@@ -3,7 +3,7 @@ import { writeFile, mkdir, readFile } from "fs/promises";
 import path from "path";
 import { randomUUID } from "crypto";
 
-const VEO_MODEL = "veo-3.0-generate-001";
+const VEO_MODEL = "veo-3.1-generate-001";
 const POLL_INTERVAL_MS = 10000;
 
 function getClient(): GoogleGenAI {
