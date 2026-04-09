@@ -1,10 +1,9 @@
 import { GoogleGenAI } from "@google/genai";
 import { getPrompts } from "./prompts";
-import type { VideoUseCase } from "./types";
+import type { VideoUseCase, ReferenceImage } from "./types";
 
 const MODEL = "gemini-2.5-flash";
 
-// Singleton client — created once, reused across all agent calls
 let _client: GoogleGenAI | null = null;
 function getClient(): GoogleGenAI {
   if (!_client) {
@@ -22,6 +21,14 @@ function parseJson(text: string | undefined, fallback: unknown = {}): any {
   } catch {
     return fallback;
   }
+}
+
+function buildImageContext(images: ReferenceImage[]): string {
+  if (images.length === 0) return "";
+  const listing = images
+    .map((img) => `- id: "${img.id}", label: "${img.label ?? img.filename}"`)
+    .join("\n");
+  return `\n\nAvailable reference images:\n${listing}\n\nFor each shot, if a reference image should be used as the visual basis, include "reference_image_id": "<id>". If no image applies, omit the field. If you are unsure which image to use, set "reference_image_id": "ask_user".`;
 }
 
 export function createAgents(useCase: VideoUseCase) {
@@ -45,10 +52,11 @@ export function createAgents(useCase: VideoUseCase) {
       return parseJson(response.text, { scenes: [] });
     },
 
-    videoDirector: async (script: any) => {
+    videoDirector: async (script: any, referenceImages: ReferenceImage[] = []) => {
+      const imageContext = buildImageContext(referenceImages);
       const response = await getClient().models.generateContent({
         model: MODEL,
-        contents: `Script: ${JSON.stringify(script)}`,
+        contents: `Script: ${JSON.stringify(script)}${imageContext}`,
         config: {
           systemInstruction: prompts.videoDirector,
           responseMimeType: "application/json",

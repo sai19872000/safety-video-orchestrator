@@ -1,9 +1,31 @@
 export type VideoUseCase = "safety" | "educational" | "recreational";
 
+export interface ReferenceImage {
+  id: string;
+  filename: string;
+  path: string;
+  url: string;
+  label?: string;
+  mimeType: string;
+}
+
+export interface ClarificationRequest {
+  clarificationId: string;
+  question: string;
+  options?: string[];
+  imageIds?: string[];
+}
+
+export interface ClarificationResponse {
+  clarificationId: string;
+  answer: string;
+}
+
 export type PipelineStatus =
   | "idle"
   | "scripting"
   | "directing"
+  | "awaiting_clarification"
   | "audio"
   | "tts"
   | "generating_videos"
@@ -27,5 +49,7 @@ export interface PipelineState {
   score_report: any;
   final_score: number | null;
   improvement_notes: string[];
+  reference_images: ReferenceImage[];
+  pending_clarification: ClarificationRequest | null;
   error: string | null;
 }

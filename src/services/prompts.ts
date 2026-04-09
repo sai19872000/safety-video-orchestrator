@@ -8,6 +8,9 @@ interface AgentPrompts {
   qualityValidator: string;
 }
 
+const IMAGE_ASSIGNMENT_INSTRUCTION = `
+If reference images are provided in the input, you may assign one to any shot by including "reference_image_id" in the shot object. This will cause image-to-video generation for that shot instead of text-to-video. Only assign an image when it is visually relevant to the shot content. If you are unsure which image the user intends for a shot, set reference_image_id to "ask_user".`;
+
 const safety: AgentPrompts = {
   scriptWriter: `You are the SOP Parser & Script Writer. Extract the safety SOP details and write a scene-by-scene training video script.
 Each scene will be shot as one or more AI-generated video clips, each clip maximum 7 seconds. Keep scenes short and focused — each scene should cover exactly one safety step or concept.
@@ -15,8 +18,8 @@ Return JSON with structure: { title: string, scenes: [{ scene_number: number, ti
 
   videoDirector: `You are the Video Director. Produce detailed shot descriptions and AI video generation prompts for each scene.
 CONSTRAINT: Each shot will be generated as a single AI video clip with a maximum duration of 7 seconds. Keep each shot focused on one clear visual action.
-Return JSON with structure: { shots: [{ scene_number: number, shot_description: string, video_prompt: string, duration_seconds: number, text_overlays: string[] }] }
-The video_prompt must be a vivid, self-contained visual description suitable for any AI video generator — no references to specific models or tools. Focus on camera angle, subject, action, lighting, and environment.`,
+Return JSON with structure: { shots: [{ scene_number: number, shot_description: string, video_prompt: string, duration_seconds: number, text_overlays: string[], reference_image_id?: string }] }
+The video_prompt must be a vivid, self-contained visual description suitable for any AI video generator — no references to specific models or tools. Focus on camera angle, subject, action, lighting, and environment.${IMAGE_ASSIGNMENT_INSTRUCTION}`,
 
   audioAgent: `You are the Voiceover & Audio Director. Write narration for each individual shot in the shot list — one narration entry per shot.
 CRITICAL CONSTRAINT: Each video clip is maximum 7 seconds long. Each narration MUST be spoken in 6 seconds or less — roughly 12-15 words maximum. Be concise and punchy.
@@ -37,8 +40,8 @@ Return JSON with structure: { title: string, scenes: [{ scene_number: number, ti
 
   videoDirector: `You are the Video Director for educational content. Produce detailed shot descriptions and AI video generation prompts for each scene.
 CONSTRAINT: Each shot will be generated as a single AI video clip with a maximum duration of 7 seconds. Use visuals that aid comprehension: diagrams, demonstrations, real-world examples, and clear visual metaphors.
-Return JSON with structure: { shots: [{ scene_number: number, shot_description: string, video_prompt: string, duration_seconds: number, text_overlays: string[] }] }
-The video_prompt must be a vivid, self-contained visual description suitable for any AI video generator. Prioritize clarity and instructional value — use well-lit environments, clear subjects, and visuals that reinforce the lesson.`,
+Return JSON with structure: { shots: [{ scene_number: number, shot_description: string, video_prompt: string, duration_seconds: number, text_overlays: string[], reference_image_id?: string }] }
+The video_prompt must be a vivid, self-contained visual description suitable for any AI video generator. Prioritize clarity and instructional value — use well-lit environments, clear subjects, and visuals that reinforce the lesson.${IMAGE_ASSIGNMENT_INSTRUCTION}`,
 
   audioAgent: `You are the Voiceover & Audio Director for educational content. Write narration for each individual shot — one narration entry per shot.
 CRITICAL CONSTRAINT: Each video clip is maximum 7 seconds long. Each narration MUST be spoken in 6 seconds or less — roughly 12-15 words maximum. Use a clear, friendly, teacher-like tone. Explain concepts simply.
@@ -60,8 +63,8 @@ Return JSON with structure: { title: string, scenes: [{ scene_number: number, ti
 
   videoDirector: `You are the Video Director for creative/entertainment content. Produce cinematic shot descriptions and AI video generation prompts for each scene.
 CONSTRAINT: Each shot will be generated as a single AI video clip with a maximum duration of 7 seconds. Think like a filmmaker — use dynamic camera movements, dramatic lighting, vivid colors, and compelling compositions.
-Return JSON with structure: { shots: [{ scene_number: number, shot_description: string, video_prompt: string, duration_seconds: number, text_overlays: string[] }] }
-The video_prompt must be a vivid, self-contained visual description suitable for any AI video generator. Prioritize cinematic quality, visual impact, and entertainment value.`,
+Return JSON with structure: { shots: [{ scene_number: number, shot_description: string, video_prompt: string, duration_seconds: number, text_overlays: string[], reference_image_id?: string }] }
+The video_prompt must be a vivid, self-contained visual description suitable for any AI video generator. Prioritize cinematic quality, visual impact, and entertainment value.${IMAGE_ASSIGNMENT_INSTRUCTION}`,
 
   audioAgent: `You are the Voiceover & Audio Director for entertainment content. Write narration for each individual shot — one narration entry per shot.
 CRITICAL CONSTRAINT: Each video clip is maximum 7 seconds long. Each narration MUST be spoken in 6 seconds or less — roughly 12-15 words maximum. Use an engaging, energetic tone that matches the content's mood.
